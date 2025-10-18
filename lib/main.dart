@@ -772,7 +772,7 @@ class _JoystickPageState extends State<JoystickPage> {
                 BoxShadow(
                   color: isPressed
                       ? color.withOpacity(0.7)
-                      : Colors.black.withOpacity(0.5),
+                      : Colors.black.withOpacity(0.4),
                   blurRadius: isPressed ? 12 : 6,
                   spreadRadius: isPressed ? 2 : 0,
                 ),
