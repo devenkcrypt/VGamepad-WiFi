@@ -23,10 +23,10 @@ VGamepad is a mobile gamepad app that connects to your PC or games via WiFi, giv
 
 ## Screenshots
 <img src="./assets/icons/v_gamepad_icon.png" alt="App Logo" width="400"/>
-<img src="./assets/images/screenshot_1.png" alt="App Screenshot 1" width="400"/>
-<img src="./assets/images/screenshot_2.png" alt="App Screenshot 2" width="400"/>
 <img src="./assets/images/screenshot_3.png" alt="App Screenshot 3" width="400"/>
 <img src="./assets/images/screenshot_4.png" alt="App Screenshot 4" width="400"/>
+<img src="./assets/images/screenshot_1.png" alt="App Screenshot 1" width="400"/>
+<img src="./assets/images/screenshot_2.png" alt="App Screenshot 2" width="400"/>
 
 ---
 
