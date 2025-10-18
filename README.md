@@ -9,7 +9,7 @@ VGamepad is a mobile gamepad app that connects to your PC or games via WiFi, giv
 - Real-time input for multiple buttons & controls  
 - Lightweight, fast, and responsive  
 - User-friendly mobile interface  
-- Works on multiple platforms  
+- Works on multiple platforms.
 
 ---
 
