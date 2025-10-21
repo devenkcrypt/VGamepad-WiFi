@@ -303,7 +303,7 @@ class _JoystickPageState extends State<JoystickPage> {
         try {
           print('Received: ${utf8.decode(data)}');
         } catch (e) {
-          print('Error decoding data: $e');
+          print('Error decoding data from server: $e');
         }
       },
       onError: (error) {
