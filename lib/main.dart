@@ -34,6 +34,7 @@ class _ConnectionPageState extends State<ConnectionPage> {
   final TextEditingController _ipController = TextEditingController();
   final TextEditingController _nameController = TextEditingController();
   bool _isConnecting = false;
+  int _selectedPad = 1; // Default to Pad 1
 
   @override
   void dispose() {
@@ -66,7 +67,13 @@ class _ConnectionPageState extends State<ConnectionPage> {
         timeout: const Duration(seconds: 5),
       );
 
-      socket.write(jsonEncode({'type': 'connect', 'name': playerName}));
+      socket.write(
+        jsonEncode({
+          'type': 'connect',
+          'name': playerName,
+          'pad': _selectedPad,
+        }),
+      );
       socket.write('\n');
       await socket.flush();
 
@@ -83,8 +90,11 @@ class _ConnectionPageState extends State<ConnectionPage> {
         await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) =>
-                JoystickPage(socket: socket!, playerName: playerName),
+            builder: (_) => JoystickPage(
+              socket: socket!,
+              playerName: playerName,
+              padNumber: _selectedPad,
+            ),
           ),
         );
 
@@ -161,6 +171,75 @@ class _ConnectionPageState extends State<ConnectionPage> {
                   border: OutlineInputBorder(),
                 ),
               ),
+              const SizedBox(height: 20),
+              // Pad Selection
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white12,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.white24),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "Select Controller Pad:",
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        for (int pad = 1; pad <= 4; pad++)
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => setState(() => _selectedPad = pad),
+                              child: Container(
+                                margin: const EdgeInsets.symmetric(
+                                  horizontal: 4,
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 12,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _selectedPad == pad
+                                      ? Colors.blueAccent
+                                      : Colors.white.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: _selectedPad == pad
+                                        ? Colors.blueAccent
+                                        : Colors.white24,
+                                    width: 2,
+                                  ),
+                                ),
+                                child: Text(
+                                  "Pad $pad",
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    color: _selectedPad == pad
+                                        ? Colors.white
+                                        : Colors.white70,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      "Each mobile device should use a different pad number",
+                      style: TextStyle(color: Colors.white60, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 40),
               ElevatedButton.icon(
                 onPressed: _isConnecting ? null : _connect,
@@ -185,11 +264,13 @@ class _ConnectionPageState extends State<ConnectionPage> {
 class JoystickPage extends StatefulWidget {
   final Socket socket;
   final String playerName;
+  final int padNumber;
 
   const JoystickPage({
     super.key,
     required this.socket,
     required this.playerName,
+    required this.padNumber,
   });
 
   @override
@@ -202,6 +283,10 @@ class _JoystickPageState extends State<JoystickPage> {
   bool _isConnected = true;
   StreamSubscription? _socketSubscription;
   Timer? _keepAliveTimer;
+
+  // Button debouncing - reduced for faster gaming
+  final Map<String, DateTime> _lastButtonPress = {};
+  final Duration _buttonDebounceTime = const Duration(milliseconds: 50);
 
   @override
   void initState() {
@@ -269,6 +354,7 @@ class _JoystickPageState extends State<JoystickPage> {
     try {
       final payload = jsonEncode({
         'player': widget.playerName,
+        'pad': widget.padNumber,
         'action': action,
         'data': data ?? {},
         'timestamp': DateTime.now().millisecondsSinceEpoch,
@@ -285,6 +371,17 @@ class _JoystickPageState extends State<JoystickPage> {
       'name': buttonName,
       'state': isPressed ? 'pressed' : 'released',
     });
+  }
+
+  bool _canPressButton(String buttonName) {
+    final now = DateTime.now();
+    final lastPress = _lastButtonPress[buttonName];
+
+    if (lastPress == null || now.difference(lastPress) >= _buttonDebounceTime) {
+      _lastButtonPress[buttonName] = now;
+      return true;
+    }
+    return false;
   }
 
   @override
@@ -392,7 +489,9 @@ class _JoystickPageState extends State<JoystickPage> {
               ),
               const SizedBox(width: 6),
               Text(
-                _isConnected ? 'CONNECTED' : 'DISCONNECTED',
+                _isConnected
+                    ? 'CONNECTED - PAD ${widget.padNumber}'
+                    : 'DISCONNECTED',
                 style: const TextStyle(
                   color: Colors.white70,
                   fontSize: 10,
@@ -543,259 +642,7 @@ class _JoystickPageState extends State<JoystickPage> {
     );
   }
 
-  // D-Pad Builder (extra spacing between buttons)
-  Widget _buildDPad(double areaSize, double buttonSize) {
-    final dpadAreaSize = areaSize * 1.7; // Increase area for more spacing
-    final dpadButtonSize = buttonSize * 0.8; // Make buttons smaller
-    final center = dpadAreaSize / 2 - dpadButtonSize / 2;
-    return SizedBox(
-      width: dpadAreaSize,
-      height: dpadAreaSize,
-      child: Stack(
-        children: [
-          // UP
-          Positioned(
-            left: center,
-            top: 0,
-            child: _buildDPadButton(
-              icon: Icons.arrow_upward,
-              size: dpadButtonSize,
-              onPressed: () => _sendData('button', {'name': 'dpad_up'}),
-            ),
-          ),
-          // RIGHT
-          Positioned(
-            right: 0,
-            top: center,
-            child: _buildDPadButton(
-              icon: Icons.arrow_forward,
-              size: dpadButtonSize,
-              onPressed: () => _sendData('button', {'name': 'dpad_right'}),
-            ),
-          ),
-          // DOWN
-          Positioned(
-            left: center,
-            bottom: 0,
-            child: _buildDPadButton(
-              icon: Icons.arrow_downward,
-              size: dpadButtonSize,
-              onPressed: () => _sendData('button', {'name': 'dpad_down'}),
-            ),
-          ),
-          // LEFT
-          Positioned(
-            left: 0,
-            top: center,
-            child: _buildDPadButton(
-              icon: Icons.arrow_back,
-              size: dpadButtonSize,
-              onPressed: () => _sendData('button', {'name': 'dpad_left'}),
-            ),
-          ),
-          // CENTER
-          // Positioned(
-          //   left: center,
-          //   top: center,
-          //   child: Container(
-          //     width: dpadButtonSize * 0.1,
-          //     height: dpadButtonSize * 0.1,
-          //     decoration: BoxDecoration(
-          //       shape: BoxShape.circle,
-          //       color: Colors.grey.withOpacity(0.3),
-          //       border: Border.all(
-          //         color: Colors.white.withOpacity(0.2),
-          //         width: 1,
-          //       ),
-          //     ),
-          //   ),
-          // ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDPadButton({
-    required IconData icon,
-    required double size,
-    required VoidCallback onPressed,
-  }) {
-    return StatefulBuilder(
-      builder: (context, setState) {
-        bool isPressed = false;
-
-        return GestureDetector(
-          onTapDown: _isConnected
-              ? (_) {
-                  setState(() => isPressed = true);
-                  onPressed();
-                  HapticFeedback.mediumImpact();
-                }
-              : null,
-          onTapUp: (_) => setState(() => isPressed = false),
-          onTapCancel: () => setState(() => isPressed = false),
-          child: Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: isPressed
-                    ? [
-                        Colors.cyan.withOpacity(0.4),
-                        Colors.cyan.withOpacity(0.2),
-                      ]
-                    : [const Color(0xFF2a2a3e), const Color(0xFF1a1a2e)],
-              ),
-              border: Border.all(
-                color: isPressed ? Colors.cyan : Colors.cyan.withOpacity(0.5),
-                width: isPressed ? 2 : 1.5,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: isPressed
-                      ? Colors.cyan.withOpacity(0.5)
-                      : Colors.black.withOpacity(0.5),
-                  blurRadius: isPressed ? 8 : 4,
-                  spreadRadius: isPressed ? 1 : 0,
-                ),
-              ],
-            ),
-            child: Icon(
-              icon,
-              color: Colors.grey.withOpacity(isPressed ? 1.0 : 0.7),
-              size: size * 0.45,
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  // Action Buttons Builder (perfect cross, responsive)
-  Widget _buildActionButtons(double areaSize, double buttonSize) {
-    final center = areaSize / 2 - buttonSize / 2;
-    return SizedBox(
-      width: areaSize,
-      height: areaSize,
-      child: Stack(
-        children: [
-          // TRIANGLE (Top)
-          Positioned(
-            left: center,
-            top: 0,
-            child: _buildActionButton(
-              symbol: '△',
-              color: Colors.greenAccent,
-              name: 'triangle',
-              size: buttonSize,
-            ),
-          ),
-          // CIRCLE (Right)
-          Positioned(
-            right: 0,
-            top: center,
-            child: _buildActionButton(
-              symbol: '', // Remove 'O' text
-              color: Colors.redAccent,
-              name: 'circle',
-              size: buttonSize,
-              icon: Icons.circle_outlined, // Use Material icon for circle
-            ),
-          ),
-          // X (Bottom)
-          Positioned(
-            left: center,
-            bottom: 0,
-            child: _buildActionButton(
-              symbol: '✕',
-              color: Colors.blueAccent,
-              name: 'cross',
-              size: buttonSize,
-            ),
-          ),
-          // SQUARE (Left)
-          Positioned(
-            left: 0,
-            top: center,
-            child: _buildActionButton(
-              symbol: '□',
-              color: Colors.pinkAccent,
-              name: 'square',
-              size: buttonSize,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildActionButton({
-    required String symbol,
-    required Color color,
-    required String name,
-    required double size,
-    IconData? icon, // Optional icon parameter
-  }) {
-    return StatefulBuilder(
-      builder: (context, setState) {
-        bool isPressed = false;
-
-        return GestureDetector(
-          onTapDown: _isConnected
-              ? (_) {
-                  setState(() => isPressed = true);
-                  _sendPressRelease(name, true);
-                  HapticFeedback.lightImpact();
-                }
-              : null,
-          onTapUp: (_) {
-            setState(() => isPressed = false);
-            _sendPressRelease(name, false);
-          },
-          onTapCancel: () => setState(() => isPressed = false),
-          child: Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: isPressed
-                    ? [color.withOpacity(0.6), color.withOpacity(0.3)]
-                    : [const Color(0xFF2a2a3e), const Color(0xFF1a1a2e)],
-              ),
-              border: Border.all(
-                color: isPressed ? color : color.withOpacity(0.6),
-                width: isPressed ? 2.5 : 1.5,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: isPressed
-                      ? color.withOpacity(0.7)
-                      : Colors.black.withOpacity(0.4),
-                  blurRadius: isPressed ? 12 : 6,
-                  spreadRadius: isPressed ? 2 : 0,
-                ),
-              ],
-            ),
-            child: Center(
-              child: icon != null
-                  ? Icon(icon, color: color, size: size * 0.40)
-                  : Text(
-                      symbol,
-                      style: TextStyle(
-                        color: color,
-                        fontSize: size * 0.40,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
+  // Joystick widget for analog sticks
   Widget _buildJoystick({
     required Offset position,
     required double size,
@@ -893,246 +740,484 @@ class _JoystickPageState extends State<JoystickPage> {
     );
   }
 
+  // D-Pad Builder (extra spacing between buttons)
+  Widget _buildDPad(double areaSize, double buttonSize) {
+    final dpadAreaSize = areaSize * 1.7; // Increase area for more spacing
+    final dpadButtonSize = buttonSize * 0.8; // Make buttons smaller
+    final center = dpadAreaSize / 2 - dpadButtonSize / 2;
+    return SizedBox(
+      width: dpadAreaSize,
+      height: dpadAreaSize,
+      child: Stack(
+        children: [
+          // UP
+          Positioned(
+            left: center,
+            top: 0,
+            child: _buildDPadButton(
+              icon: Icons.arrow_upward,
+              size: dpadButtonSize,
+              name: 'dpad_up', // <-- add this line
+              onPressed: () => _sendData('button', {'name': 'dpad_up'}),
+            ),
+          ),
+          // RIGHT
+          Positioned(
+            right: 0,
+            top: center,
+            child: _buildDPadButton(
+              icon: Icons.arrow_forward,
+              size: dpadButtonSize,
+              name: 'dpad_right', // <-- add this line
+              onPressed: () => _sendData('button', {'name': 'dpad_right'}),
+            ),
+          ),
+          // DOWN
+          Positioned(
+            left: center,
+            bottom: 0,
+            child: _buildDPadButton(
+              icon: Icons.arrow_downward,
+              size: dpadButtonSize,
+              name: 'dpad_down', // <-- add this line
+              onPressed: () => _sendData('button', {'name': 'dpad_down'}),
+            ),
+          ),
+          // LEFT
+          Positioned(
+            left: 0,
+            top: center,
+            child: _buildDPadButton(
+              icon: Icons.arrow_back,
+              size: dpadButtonSize,
+              name: 'dpad_left', // <-- add this line
+              onPressed: () => _sendData('button', {'name': 'dpad_left'}),
+            ),
+          ),
+          // CENTER
+          // Positioned(
+          //   left: center,
+          //   top: center,
+          //   child: Container(
+          //     width: dpadButtonSize * 0.1,
+          //     height: dpadButtonSize * 0.1,
+          //     decoration: BoxDecoration(
+          //       shape: BoxShape.circle,
+          //       color: Colors.grey.withOpacity(0.3),
+          //       border: Border.all(
+          //         color: Colors.white.withOpacity(0.2),
+          //         width: 1,
+          //       ),
+          //     ),
+          //   ),
+          // ),
+        ],
+      ),
+    );
+  }
+
+  // D-Pad Button (uses RepeatButton)
+  Widget _buildDPadButton({
+    required IconData icon,
+    required double size,
+    required String name,
+    required VoidCallback onPressed,
+  }) {
+    return RepeatButton(
+      enabled: _isConnected,
+      onTap: null, // Remove onTap to prevent double calls
+      onTapDown: () {
+        if (_canPressButton(name)) {
+          _sendPressRelease(name, true);
+          HapticFeedback.mediumImpact();
+        }
+      },
+      onTapUp: () {
+        _sendPressRelease(name, false);
+      },
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: [const Color(0xFF2a2a3e), const Color(0xFF1a1a2e)],
+          ),
+          border: Border.all(
+            color: Colors.cyanAccent.withOpacity(0.5),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.5),
+              blurRadius: 6,
+              spreadRadius: 0,
+            ),
+          ],
+        ),
+        child: Center(
+          child: Icon(icon, color: Colors.cyanAccent, size: size * 0.45),
+        ),
+      ),
+    );
+  }
+
+  // Action Button (uses RepeatButton)
+  Widget _buildActionButton({
+    required String symbol,
+    required Color color,
+    required String name,
+    required double size,
+    IconData? icon,
+  }) {
+    return RepeatButton(
+      enabled: _isConnected,
+      onTap: null, // Remove onTap to prevent double calls
+      onTapDown: () {
+        if (_canPressButton(name)) {
+          _sendPressRelease(name, true);
+          HapticFeedback.lightImpact();
+        }
+      },
+      onTapUp: () {
+        _sendPressRelease(name, false);
+      },
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: [const Color(0xFF2a2a3e), const Color(0xFF1a1a2e)],
+          ),
+          border: Border.all(color: color.withOpacity(0.6), width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.5),
+              blurRadius: 6,
+              spreadRadius: 0,
+            ),
+          ],
+        ),
+        child: Center(
+          child: icon != null
+              ? Icon(icon, color: color, size: size * 0.40)
+              : Text(
+                  symbol,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: size * 0.40,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+        ),
+      ),
+    );
+  }
+
+  // Shoulder Button (uses RepeatButton)
   Widget _buildShoulderButton(String label, double width, double height) {
-    return StatefulBuilder(
-      builder: (context, setState) {
-        bool isPressed = false;
-
-        return GestureDetector(
-          onTapDown: _isConnected
-              ? (_) {
-                  setState(() => isPressed = true);
-                  _sendPressRelease(label.toLowerCase(), true);
-                  HapticFeedback.mediumImpact();
-                }
-              : null,
-          onTapUp: (_) {
-            setState(() => isPressed = false);
-            _sendPressRelease(label.toLowerCase(), false);
-          },
-
-          onTapCancel: () => setState(() => isPressed = false),
-          child: Container(
-            width: width,
-            height: height,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              gradient: LinearGradient(
-                colors: isPressed
-                    ? [
-                        Colors.cyanAccent.withOpacity(0.4),
-                        Colors.cyanAccent.withOpacity(0.2),
-                      ]
-                    : [const Color(0xFF2a2a3e), const Color(0xFF1a1a2e)],
-              ),
-              border: Border.all(
-                color: isPressed
-                    ? Colors.cyanAccent
-                    : Colors.cyanAccent.withOpacity(0.5),
-                width: isPressed ? 2 : 1.5,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: isPressed
-                      ? Colors.cyanAccent.withOpacity(0.5)
-                      : Colors.black.withOpacity(0.5),
-                  blurRadius: isPressed ? 10 : 5,
-                  spreadRadius: isPressed ? 1 : 0,
-                ),
-              ],
+    return RepeatButton(
+      enabled: _isConnected,
+      onTap: null, // Remove onTap to prevent double calls
+      onTapDown: () {
+        if (_canPressButton(label.toLowerCase())) {
+          _sendPressRelease(label.toLowerCase(), true);
+          HapticFeedback.mediumImpact();
+        }
+      },
+      onTapUp: () {
+        _sendPressRelease(label.toLowerCase(), false);
+      },
+      child: Container(
+        width: width,
+        height: height,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          gradient: LinearGradient(
+            colors: [const Color(0xFF2a2a3e), const Color(0xFF1a1a2e)],
+          ),
+          border: Border.all(
+            color: Colors.cyanAccent.withOpacity(0.5),
+            width: 1.5,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.5),
+              blurRadius: 5,
+              spreadRadius: 0,
             ),
-            child: Center(
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: isPressed ? Colors.cyanAccent : Colors.white70,
-                  fontSize: height * 0.32,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.8,
-                ),
-              ),
+          ],
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: Colors.white70,
+              fontSize: height * 0.32,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.8,
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
+  // Small Button (uses RepeatButton)
   Widget _buildSmallButton(String label, double size) {
-    return StatefulBuilder(
-      builder: (context, setState) {
-        bool isPressed = false;
-
-        return GestureDetector(
-          onTapDown: _isConnected
-              ? (_) {
-                  setState(() => isPressed = true);
-                  _sendData('button', {'name': label.toLowerCase()});
-                  HapticFeedback.mediumImpact();
-                }
-              : null,
-          onTapUp: (_) => setState(() => isPressed = false),
-          onTapCancel: () => setState(() => isPressed = false),
-          child: Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(6),
-              gradient: LinearGradient(
-                colors: isPressed
-                    ? [
-                        Colors.white.withOpacity(0.2),
-                        Colors.white.withOpacity(0.1),
-                      ]
-                    : [const Color(0xFF2a2a3e), const Color(0xFF1a1a2e)],
-              ),
-              border: Border.all(
-                color: isPressed ? Colors.white : Colors.white.withOpacity(0.3),
-                width: 1.5,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.5),
-                  blurRadius: 6,
-                  offset: const Offset(0, 2),
-                ),
-              ],
+    return RepeatButton(
+      enabled: _isConnected,
+      onTap: null, // Remove onTap to prevent double calls
+      onTapDown: () {
+        if (_canPressButton(label.toLowerCase())) {
+          _sendPressRelease(label.toLowerCase(), true);
+          HapticFeedback.mediumImpact();
+        }
+      },
+      onTapUp: () {
+        _sendPressRelease(label.toLowerCase(), false);
+      },
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(6),
+          gradient: LinearGradient(
+            colors: [const Color(0xFF2a2a3e), const Color(0xFF1a1a2e)],
+          ),
+          border: Border.all(color: Colors.white.withOpacity(0.3), width: 1.5),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.5),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
             ),
-            child: Center(
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(isPressed ? 1.0 : 0.6),
-                  fontSize: size * 0.26,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
-                ),
-              ),
+          ],
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.6),
+              fontSize: size * 0.26,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
+  // Option Button (uses RepeatButton)
   Widget _buildOptionButton(
     String label,
     VoidCallback onPressed,
     double width,
   ) {
-    return StatefulBuilder(
-      builder: (context, setState) {
-        bool isPressed = false;
-
-        return GestureDetector(
-          onTapDown: _isConnected
-              ? (_) {
-                  setState(() => isPressed = true);
-                  onPressed();
-                  HapticFeedback.selectionClick();
-                }
-              : null,
-          onTapUp: (_) => setState(() => isPressed = false),
-          onTapCancel: () => setState(() => isPressed = false),
-          child: Container(
-            width: width,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(6),
-              gradient: LinearGradient(
-                colors: isPressed
-                    ? [
-                        Colors.white.withOpacity(0.15),
-                        Colors.white.withOpacity(0.05),
-                      ]
-                    : [Colors.white.withOpacity(0.05), Colors.transparent],
-              ),
-              border: Border.all(
-                color: Colors.white.withOpacity(isPressed ? 0.4 : 0.2),
-                width: 1,
-              ),
-              boxShadow: [
-                if (isPressed)
-                  BoxShadow(
-                    color: Colors.white.withOpacity(0.2),
-                    blurRadius: 6,
-                    spreadRadius: 1,
-                  ),
-              ],
-            ),
-            child: Center(
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: Colors.white.withOpacity(isPressed ? 0.9 : 0.6),
-                  fontSize: 8,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.8,
-                ),
-              ),
+    return RepeatButton(
+      enabled: _isConnected,
+      onTap: null, // Remove onTap to prevent double calls
+      onTapDown: () {
+        if (_canPressButton(label.toLowerCase())) {
+          _sendPressRelease(label.toLowerCase(), true);
+          HapticFeedback.selectionClick();
+        }
+      },
+      onTapUp: () {
+        _sendPressRelease(label.toLowerCase(), false);
+      },
+      child: Container(
+        width: width,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(6),
+          gradient: LinearGradient(
+            colors: [Colors.white.withOpacity(0.05), Colors.transparent],
+          ),
+          border: Border.all(color: Colors.white.withOpacity(0.2), width: 1),
+          boxShadow: [],
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.6),
+              fontSize: 8,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.8,
             ),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
+  // PS Button (uses RepeatButton)
   Widget _buildPSButton(double size) {
-    return StatefulBuilder(
-      builder: (context, setState) {
-        bool isPressed = false;
+    return RepeatButton(
+      enabled: _isConnected,
+      onTap: null, // Remove onTap to prevent double calls
+      onTapDown: () {
+        if (_canPressButton('ps')) {
+          _sendPressRelease('ps', true);
+          HapticFeedback.heavyImpact();
+        }
+      },
+      onTapUp: () {
+        _sendPressRelease('ps', false);
+      },
+      child: Container(
+        width: size * 0.75,
+        height: size * 0.75,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: RadialGradient(
+            colors: [const Color(0xFF2a2a3e), const Color(0xFF1a1a2e)],
+          ),
+          border: Border.all(
+            color: Colors.blueAccent.withOpacity(0.5),
+            width: 1.5,
+          ),
+          boxShadow: [],
+        ),
+        child: Center(
+          child: Icon(
+            Icons.videogame_asset,
+            color: Colors.blueAccent.withOpacity(0.7),
+            size: size * 0.30,
+          ),
+        ),
+      ),
+    );
+  }
 
-        return GestureDetector(
-          onTapDown: _isConnected
-              ? (_) {
-                  setState(() => isPressed = true);
-                  _sendData('button', {'name': 'ps'});
-                  HapticFeedback.heavyImpact();
-                }
-              : null,
-          onTapUp: (_) => setState(() => isPressed = false),
-          onTapCancel: () => setState(() => isPressed = false),
-          child: Container(
-            width: size * 0.75,
-            height: size * 0.75,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: RadialGradient(
-                colors: isPressed
-                    ? [
-                        Colors.blueAccent.withOpacity(0.6),
-                        Colors.blueAccent.withOpacity(0.3),
-                      ]
-                    : [const Color(0xFF2a2a3e), const Color(0xFF1a1a2e)],
-              ),
-              border: Border.all(
-                color: isPressed
-                    ? Colors.blueAccent
-                    : Colors.blueAccent.withOpacity(0.5),
-                width: isPressed ? 2 : 1.5,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: isPressed
-                      ? Colors.blueAccent.withOpacity(0.6)
-                      : Colors.black.withOpacity(0.5),
-                  blurRadius: isPressed ? 12 : 6,
-                  spreadRadius: isPressed ? 2 : 0,
-                ),
-              ],
-            ),
-            child: Center(
-              child: Icon(
-                Icons.videogame_asset,
-                color: isPressed
-                    ? Colors.blueAccent
-                    : Colors.blueAccent.withOpacity(0.7),
-                size: size * 0.30,
-              ),
+  // Action Buttons Builder (perfect cross, responsive)
+  Widget _buildActionButtons(double areaSize, double buttonSize) {
+    final center = areaSize / 2 - buttonSize / 2;
+    return SizedBox(
+      width: areaSize,
+      height: areaSize,
+      child: Stack(
+        children: [
+          // TRIANGLE (Top)
+          Positioned(
+            left: center,
+            top: 0,
+            child: _buildActionButton(
+              symbol: '△',
+              color: Colors.greenAccent,
+              name: 'triangle',
+              size: buttonSize,
             ),
           ),
-        );
-      },
+          // CIRCLE (Right)
+          Positioned(
+            right: 0,
+            top: center,
+            child: _buildActionButton(
+              symbol: '',
+              color: Colors.redAccent,
+              name: 'circle',
+              size: buttonSize,
+              icon: Icons.circle_outlined,
+            ),
+          ),
+          // X (Bottom)
+          Positioned(
+            left: center,
+            bottom: 0,
+            child: _buildActionButton(
+              symbol: '✕',
+              color: Colors.blueAccent,
+              name: 'cross',
+              size: buttonSize,
+            ),
+          ),
+          // SQUARE (Left)
+          Positioned(
+            left: 0,
+            top: center,
+            child: _buildActionButton(
+              symbol: '□',
+              color: Colors.pinkAccent,
+              name: 'square',
+              size: buttonSize,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class RepeatButton extends StatefulWidget {
+  final Widget child;
+  final VoidCallback? onTap;
+  final VoidCallback? onTapDown;
+  final VoidCallback? onTapUp;
+  final Duration repeatDelay;
+  final bool enabled;
+
+  const RepeatButton({
+    Key? key,
+    required this.child,
+    this.onTap,
+    this.onTapDown,
+    this.onTapUp,
+    this.repeatDelay = const Duration(milliseconds: 70),
+    this.enabled = true,
+  }) : super(key: key);
+
+  @override
+  State<RepeatButton> createState() => _RepeatButtonState();
+}
+
+class _RepeatButtonState extends State<RepeatButton> {
+  Timer? _repeatTimer;
+  Timer? _delayTimer;
+  bool _isPressed = false;
+
+  void _onTapDown() {
+    if (!_isPressed) {
+      _isPressed = true;
+      widget.onTapDown?.call();
+      // Remove automatic repeating to prevent multiple calls
+      // Only call onTapDown once, no repeating timer
+    }
+  }
+
+  void _onTapUp() {
+    if (_isPressed) {
+      // Remove onTap call to prevent double calls
+      widget.onTapUp?.call();
+      _isPressed = false;
+      _repeatTimer?.cancel();
+      _delayTimer?.cancel();
+      _repeatTimer = null;
+      _delayTimer = null;
+    }
+  }
+
+  void _onTapCancel() {
+    _onTapUp();
+  }
+
+  @override
+  void dispose() {
+    _repeatTimer?.cancel();
+    _delayTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTapDown: widget.enabled ? (_) => _onTapDown() : null,
+      onTapUp: widget.enabled ? (_) => _onTapUp() : null,
+      onTapCancel: widget.enabled ? _onTapCancel : null,
+      child: widget.child,
     );
   }
 }
